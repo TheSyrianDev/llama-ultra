@@ -5483,6 +5483,7 @@ static void quantize_row_iq1_m_impl(const float * GGML_RESTRICT x, void * GGML_R
         float id = 1/d;
         float sumqx_f = 0, sumq2_f = 0;
         for (int ib = 0; ib < QK_K/block_size; ++ib) {
+            float sigma2 = all_sigma2[ib/2];
             int l = nearest_int(0.5f*(id*scales[ib+0]-1));
             l = MAX(0, MIN(7, l));
             sc[ib/4] |= (l << 3*(ib%4));
