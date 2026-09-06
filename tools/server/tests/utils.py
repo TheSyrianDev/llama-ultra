@@ -116,6 +116,7 @@ class ServerProcess:
     media_path: str | None = None
     sleep_idle_seconds: int | None = None
     cache_ram: int | None = None
+    cache_reuse: int | None = None
     ctx_checkpoints: int | None = None
     checkpoint_min_step: int | None = None
     no_cache_idle_slots: bool = False
@@ -287,6 +288,8 @@ class ServerProcess:
             server_args.extend(["--sleep-idle-seconds", self.sleep_idle_seconds])
         if self.cache_ram is not None:
             server_args.extend(["--cache-ram", self.cache_ram])
+        if self.cache_reuse is not None:
+            server_args.extend(["--cache-reuse", self.cache_reuse])
         if self.ctx_checkpoints is not None:
             server_args.extend(["--ctx-checkpoints", self.ctx_checkpoints])
         if self.checkpoint_min_step is not None:
