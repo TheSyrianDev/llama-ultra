@@ -10,6 +10,7 @@
 // TODO: replace with #include "llama-ext.h" in the future
 #include "../src/llama-arch.h"
 #include "../src/llama-model-saver.h"
+#include "../src/llama-model.h"
 
 #include <cinttypes>
 #include <cstddef>
@@ -65,7 +66,7 @@ static void set_tensor_data(struct ggml_tensor * tensor, void * userdata) {
 }
 
 static void usage(char ** argv) {
-    printf("Usage: %s [-a/--arch arch] [-s/--seed seed] [-v/--verbose] [--test-mtp-ubatch-sync] [--test-meta-alloc-failure]\n", argv[0]);
+    printf("Usage: %s [-a/--arch arch] [-s/--seed seed] [-v/--verbose] [--test-mtp-ubatch-sync] [--test-meta-alloc-failure] [--test-tied-output-split]\n", argv[0]);
 }
 
 static std::vector<llama_token> get_tokens(const uint32_t n_tokens, const uint32_t n_vocab, const size_t seed){
@@ -556,6 +557,41 @@ static void test_meta_alloc_failure() {
     buft_cpu->iface.alloc_buffer = meta_alloc_buffer_orig;
 }
 
+// a tied model has no output.weight - its output projection must get the same split as output.weight
+static void test_tied_output_split(size_t seed) {
+    auto split_state_of = [&](llm_arch arch, bool moe, const char * name, size_t n_devices) {
+        gguf_context_ptr gguf_ctx = get_gguf_ctx(arch, moe);
+        llama_model_params model_params = llama_model_default_params();
+        model_params.progress_callback = silent_model_load_progress;
+        ggml_backend_dev_t devices[] = { nullptr };
+        model_params.devices = devices;
+
+        size_t tensor_seed = seed;
+        llama_model_ptr model(llama_model_init_from_user(gguf_ctx.get(), set_tensor_data, &tensor_seed, model_params));
+        GGML_ASSERT(model);
+        const ggml_tensor * tensor = model->get_tensor(name);
+        GGML_ASSERT(tensor != nullptr);
+
+        llama_meta_device_get_split_state_userdata ud = { n_devices, model.get() };
+        return llama_meta_device_get_split_state(tensor, &ud);
+    };
+
+    const size_t n_devices = 2;
+    const ggml_backend_meta_split_state ss_tok_embd = split_state_of(LLM_ARCH_LLAMA, false, "token_embd.weight", n_devices);
+    const ggml_backend_meta_split_state ss_output   = split_state_of(LLM_ARCH_LLAMA, false, "output.weight",     n_devices);
+    GGML_ASSERT(ss_tok_embd.axis == GGML_BACKEND_SPLIT_AXIS_1);
+    GGML_ASSERT(ss_tok_embd.axis == ss_output.axis);
+    GGML_ASSERT(ss_tok_embd.n_segments == ss_output.n_segments);
+    for (size_t i = 0; i < n_devices; i++) {
+        GGML_ASSERT(ss_tok_embd.ne[i] == ss_output.ne[i]);
+        GGML_ASSERT(ss_tok_embd.ne[i] > 0);
+    }
+
+    // DeepSeek v4 mirrors its output projection, the tied copy must follow
+    const ggml_backend_meta_split_state ss_dsv4 = split_state_of(LLM_ARCH_DEEPSEEK4, true, "token_embd.weight", n_devices);
+    GGML_ASSERT(ss_dsv4.axis == GGML_BACKEND_SPLIT_AXIS_MIRRORED);
+}
+
 static std::vector<float> get_logits(
         llama_model * model, llama_context * lctx, const std::vector<llama_token> & tokens, bool encode = false) {
     const uint32_t n_vocab  = llama_vocab_n_tokens(llama_model_get_vocab(model));
@@ -941,6 +977,7 @@ int main(int argc, char ** argv) {
     std::string out;
     bool test_mtp_sync = false;
     bool test_meta_alloc = false;
+    bool test_tied_output = false;
 
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "-a") == 0 || strcmp(argv[i], "--arch") == 0) {
@@ -982,6 +1019,10 @@ int main(int argc, char ** argv) {
         if (strcmp(argv[i], "--test-meta-alloc-failure") == 0) {
             test_meta_alloc = true;
         }
+        if (strcmp(argv[i], "--test-tied-output-split") == 0) {
+            test_tied_output = true;
+            continue;
+        }
     }
     printf("%s: using seed %zu\n", __func__, seed);
 
@@ -994,6 +1035,10 @@ int main(int argc, char ** argv) {
         }
         if (test_meta_alloc) {
             test_meta_alloc_failure();
+            return 0;
+        }
+        if (test_tied_output) {
+            test_tied_output_split(seed);
             return 0;
         }
         return test_backends(arch, seed, log_level);
