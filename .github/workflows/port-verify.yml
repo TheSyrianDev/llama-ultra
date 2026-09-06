@@ -1,0 +1,36 @@
+# port-verify — fast CPU verification for track ports (GitHub-hosted, free)
+#
+# Catches compile errors + runs the new CPU-runnable unit tests on every push
+# to integration/next or track/**. CUDA-only files (.cu/.cuh) are NOT covered
+# here — they verify in the local CUDA tree (work/build) once it goes green.
+name: port-verify
+
+on:
+  push:
+    branches: [integration/next, 'track/**']
+  workflow_dispatch:
+
+jobs:
+  cpu-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure (CPU, Release)
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+      - name: Build
+        run: cmake --build build --config Release -j 4
+      - name: New unit tests (ports #64/#65/#66)
+        run: ctest --test-dir build -C Release -R "test-meta-alloc-failure|test-sched-copy-name|test-tied-output-split" --output-on-failure
+
+  cpu-ubuntu:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install deps
+        run: sudo apt-get update && sudo apt-get install -y build-essential cmake
+      - name: Configure (CPU, Release)
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+      - name: Build
+        run: cmake --build build -j $(nproc)
+      - name: New unit tests (ports #64/#65/#66)
+        run: ctest --test-dir build -R "test-meta-alloc-failure|test-sched-copy-name|test-tied-output-split" --output-on-failure
