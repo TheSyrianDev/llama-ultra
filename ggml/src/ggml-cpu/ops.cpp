@@ -1089,17 +1089,6 @@ void ggml_compute_forward_add1(
     const ggml_tensor * src0 = dst->src[0];
     const ggml_tensor * src1 = dst->src[1];
 
-    if (src0->type == dst->type) {
-        if (src1->type == GGML_TYPE_I64) {
-            ggml_compute_forward_set_rows_copy_impl<int64_t>(params, dst);
-        } else if (src1->type == GGML_TYPE_I32) {
-            ggml_compute_forward_set_rows_copy_impl<int32_t>(params, dst);
-        } else {
-            GGML_ABORT("src1->type = %d (%s) not supported", src1->type, ggml_type_name(src1->type));
-        }
-        return;
-    }
-
     switch (src0->type) {
         case GGML_TYPE_F32:
             {
@@ -5336,6 +5325,17 @@ void ggml_compute_forward_set_rows(
                 from_float((const float *) ((const char *) src0->data + row*src0->nb[1]),
                         (char *) shadow->data + dst_row*shadow->nb[1], src0->ne[0]);
             }
+        }
+        return;
+    }
+
+    if (src0->type == dst->type) {
+        if (src1->type == GGML_TYPE_I64) {
+            ggml_compute_forward_set_rows_copy_impl<int64_t>(params, dst);
+        } else if (src1->type == GGML_TYPE_I32) {
+            ggml_compute_forward_set_rows_copy_impl<int32_t>(params, dst);
+        } else {
+            GGML_ABORT("src1->type = %d (%s) not supported", src1->type, ggml_type_name(src1->type));
         }
         return;
     }
