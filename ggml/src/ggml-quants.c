@@ -3999,6 +3999,8 @@ static void quantize_row_iq2_xxs_impl(const float * GGML_RESTRICT x, void * GGML
     }
 }
 
+static int iq1_sort_helper(const void * left, const void * right);
+
 static void quantize_row_iq2_xs_impl(const float * GGML_RESTRICT x, void * GGML_RESTRICT vy, int64_t n, const float * GGML_RESTRICT quant_weights) {
 
     const int gindex = iq2_data_index(GGML_TYPE_IQ2_XS);
@@ -4582,15 +4584,11 @@ static void quantize_row_iq3_xxs_impl(int grid_size, const float * GGML_RESTRICT
         float max_scale = 0;
 
         const float * xbl = x + QK_K*ibl;
-        for (int ib = 0; ib < QK_K/32; ++ib) {
-            const float * xb = xbl + 32*ib;
-            float sumx2 = 0;
-            for (int i = 0; i < 32; ++i) sumx2 += xb[i]*xb[i];
-            all_sigma2[ib] = 1.5f*sumx2/32;
-        }
+        float sumx2 = 0;
+        for (int i = 0; i < QK_K; ++i) sumx2 += xbl[i]*xbl[i];
+        float sigma2 = 2*sumx2/QK_K;
 
         for (int ib = 0; ib < QK_K/block_size; ++ib) {
-            float sigma2 = all_sigma2[ib/2];
             const float * xb = xbl + block_size*ib;
             if (quant_weights) {
                 const float * qw = quant_weights + QK_K*ibl + block_size*ib;
@@ -5330,11 +5328,15 @@ static void quantize_row_iq1_m_impl(const float * GGML_RESTRICT x, void * GGML_R
         float max_scale = 0;
 
         const float * xbl = x + QK_K*ibl;
-        float sumx2 = 0;
-        for (int i = 0; i < QK_K; ++i) sumx2 += xbl[i]*xbl[i];
-        float sigma2 = 2*sumx2/QK_K;
+        for (int ib = 0; ib < QK_K/32; ++ib) {
+            const float * xb = xbl + 32*ib;
+            float sumx2 = 0;
+            for (int i = 0; i < 32; ++i) sumx2 += xb[i]*xb[i];
+            all_sigma2[ib] = 1.5f*sumx2/32;
+        }
 
         for (int ib = 0; ib < QK_K/block_size; ++ib) {
+            float sigma2 = all_sigma2[ib/2];
             const float * xb = xbl + block_size*ib;
             if (quant_weights) {
                 const float * qw = quant_weights + QK_K*ibl + block_size*ib;
