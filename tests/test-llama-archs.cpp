@@ -1,6 +1,7 @@
 #include "common.h"
 #include "log.h"
 #include "ggml-backend.h"
+#include "../ggml/src/ggml-backend-impl.h"
 #include "ggml.h"
 #include "gguf.h"
 #include "ggml-cpp.h"
@@ -636,7 +637,7 @@ static void test_sched_copy_name() {
 
 // the tokens are spread over n_seq sequences, each of which starts at position 0
 static std::vector<float> get_logits(
-        llama_model * model, llama_context * lctx, const std::vector<float> & tokens, bool encode = false, uint32_t n_seq = 1) {
+        llama_model * model, llama_context * lctx, const std::vector<llama_token> & tokens, bool encode = false, uint32_t n_seq = 1) {
     const uint32_t n_vocab  = llama_vocab_n_tokens(llama_model_get_vocab(model));
     const uint32_t n_ctx    = llama_n_ctx(lctx);
     const uint32_t n_tokens = tokens.size();
