@@ -842,6 +842,15 @@ struct ggml_backend_meta_split_state llama_meta_device_get_split_state(const str
         const int64_t ne_axis   = unfolded ? tensor->ne[cache_copy.axis]*unit : tensor->ne[split_state.axis];
         const int64_t blck_size = ggml_blck_size(tc.tensor_axis_0->type);
         const float * tensor_split = ud->model->tensor_split();
+
+        // The share of the attention heads decides how much cache a device gets and how much attention
+        // work it does, neither of which has to follow the memory split. A linear-attention layer is a
+        // different mechanism and keeps tensor_split.
+        if (ud->model->attn_split() != nullptr && !hparams.is_recr(tc.il) &&
+                (std::regex_match(tensor_name, pattern_kv_cache) ||
+                 (tensor_name.substr(0, 4) == "blk." && tensor_name.find(".attn_") != std::string::npos))) {
+            tensor_split = ud->model->attn_split();
+        }
         std::vector<float> tensor_split_weights;
         tensor_split_weights.reserve(ud->n_devices);
         for (size_t j = 0; j < ud->n_devices; j++) {
@@ -1220,6 +1229,7 @@ struct llama_model::impl {
     bool has_tensor_overrides;
 
     std::vector<float> tensor_split_owned;
+    std::vector<float> attn_split_owned;
 };
 
 llama_model::llama_model(const llama_model_params & params) : params(params), pimpl(std::make_unique<impl>()) {
@@ -1229,6 +1239,23 @@ llama_model::llama_model(const llama_model_params & params) : params(params), pi
         pimpl->tensor_split_owned.assign(params.tensor_split, params.tensor_split + llama_max_devices());
         (void) llama_tensor_split_counts(0, pimpl->tensor_split_owned, 1);
         this->params.tensor_split = pimpl->tensor_split_owned.data();
+    }
+    if (params.attn_split != nullptr) {
+        // the shares reach a cumulative division and a conversion to whole heads, so a negative, a
+        // non-finite or an all-zero set has no meaning here - fall back to the tensor split
+        float sum = 0.0f;
+        bool  ok  = true;
+        for (size_t i = 0; i < llama_max_devices(); i++) {
+            ok = ok && std::isfinite(params.attn_split[i]) && params.attn_split[i] >= 0.0f;
+            sum += params.attn_split[i];
+        }
+        if (!ok || !(sum > 0.0f)) {
+            LLAMA_LOG_WARN("%s: the attention split is not a set of non-negative shares; ignoring it\n", __func__);
+            this->params.attn_split = nullptr;
+        } else {
+            pimpl->attn_split_owned.assign(params.attn_split, params.attn_split + llama_max_devices());
+            this->params.attn_split = pimpl->attn_split_owned.data();
+        }
     }
     pimpl->has_tensor_overrides = params.tensor_buft_overrides && params.tensor_buft_overrides[0].pattern;
 }
@@ -1904,6 +1931,10 @@ size_t llama_model::n_devices() const {
 
 const float * llama_model::tensor_split() const {
     return params.tensor_split;
+}
+
+const float * llama_model::attn_split() const {
+    return params.attn_split;
 }
 
 uint32_t llama_model::n_gpu_layers() const {
@@ -2826,6 +2857,7 @@ llama_model_params llama_model_default_params() {
         /*.tensor_read_lazy            =*/ LLAMA_TENSOR_READ_LAZY_AUTO,
         /*.main_gpu                    =*/ 0,
         /*.tensor_split                =*/ nullptr,
+        /*.attn_split                  =*/ nullptr,
         /*.progress_callback           =*/ nullptr,
         /*.progress_callback_user_data =*/ nullptr,
         /*.kv_overrides                =*/ nullptr,
