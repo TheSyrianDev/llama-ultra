@@ -97,9 +97,11 @@ llama-cli -m model.gguf -sm tensor -ctk f16 -ctv f16
   A two-slot DFlash regression also keeps the drafter on one explicit device
   while its borrowed target embeddings and output projection execute on the
   target's tensor topology; KVarN and the exact tail remain target-only.
-  These are not physical two-GPU or peer-transfer results. Keep tensor KVarN and
-  precision tails labeled experimental until the external two-GPU checklist is
-  completed on two distinct device IDs.
+   These are not physical two-GPU or peer-transfer results. Keep tensor KVarN and
+   precision tails labeled experimental until the external two-GPU checklist is
+   completed on two distinct device IDs.
+- `--no-kv-offload` works in this mode: the host-resident cache is split by attention head like the rest. Two limits: a backend without a native 2d copy (CPU, Metal) pays one transfer per cache cell, and Gemma 4 is less accurate this way (perplexity 235.03 with a host cache versus 227.23 with a device cache, gs-mce #66 measurement, re-verify on this fork), so keep the cache on the devices for that architecture.
+- A recurrent or hybrid model always keeps its recurrent state on the devices in this mode, even with `--no-recurrent-state-offload`. The linear-attention op writes the state back together with its output, so the two do not agree on a host-resident state.
 - Mark this configuration as experimental in your tooling: validate output quality before deploying.
 - `--split-mode tensor`is not implemented for all architectures. The following will fail with *"LLAMA_SPLIT_MODE_TENSOR not implemented for architecture '...'"*:
 
