@@ -208,6 +208,9 @@ public:
 
     const llama_kv_cells & get_cells(llama_seq_id seq_id) const;
 
+    // number of cells per stream that build_graph_shift() ropes
+    uint32_t get_n_shift() const;
+
     //
     // graph_build API
     //
